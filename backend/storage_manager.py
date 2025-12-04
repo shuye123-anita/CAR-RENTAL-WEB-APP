@@ -1,3 +1,4 @@
+
 import os
 import hashlib
 import json
@@ -37,8 +38,10 @@ class StorageManager:
         
         print(f"Storing file {original_filename} ({file_size} bytes) with ID: {file_id}")
         
-        # Check available space
+        # Check TOTAL available space across ALL nodes (distributed system)
         available_space = self.get_available_space()
+        print(f"Available space across all nodes: {self.format_size(available_space)}")
+        
         if file_size > available_space:
             return {
                 'success': False,
@@ -58,7 +61,7 @@ class StorageManager:
                 'hash': block_hash
             })
         
-        print(f"Split into {len(blocks)} blocks")
+        print(f"Split into {len(blocks)} blocks of {self.block_size/1024}KB each")
         
         # Distribute blocks across nodes
         block_placements = []
@@ -72,8 +75,9 @@ class StorageManager:
                     'nodes': placed['nodes']
                 })
                 successful_blocks += 1
+                print(f"Stored block {block['id']} ({self.format_size(block['size'])}) on nodes: {placed['nodes']}")
             else:
-                print(f"Failed to store block {block['id']}")
+                print(f"Failed to store block {block['id']} ({self.format_size(block['size'])})")
         
         # If all blocks stored successfully, save metadata
         if successful_blocks == len(blocks):
@@ -89,7 +93,8 @@ class StorageManager:
                 'user_id': user_id,
                 'uploaded_at': datetime.utcnow().isoformat(),
                 'mime_type': file_data.get('mime_type', 'application/octet-stream'),
-                'hash': hashlib.sha256(file_content).hexdigest()
+                'hash': hashlib.sha256(file_content).hexdigest(),
+                'block_placements': block_placements
             }
             
             # Update user storage
@@ -110,8 +115,9 @@ class StorageManager:
             }
         else:
             # Clean up any stored blocks
-            for block in blocks:
-                self._delete_block(block['id'], user_id)
+            print(f"Cleaning up {successful_blocks} stored blocks due to failure")
+            for placement in block_placements:
+                self._delete_block(placement['block_id'], user_id)
             
             return {
                 'success': False,
@@ -119,54 +125,63 @@ class StorageManager:
             }
     
     def _store_block(self, block, user_id):
-        """Store a single block with replication"""
+        """Store a single block with replication - FIXED DISTRIBUTED LOGIC"""
         block_id = block['id']
         block_content = block['content']
         block_size = block['size']
         
-        # Get available nodes
+        print(f"Storing block {block_id} ({self.format_size(block_size)}) with replication factor {self.replication_factor}")
+        
+        # Get ALL active nodes (not just those with enough space for the entire block)
         nodes = self.node_registry.get_active_nodes()
-        suitable_nodes = []
         
-        for node in nodes:
-            if node.is_active and node.get_available_space() >= block_size:
-                suitable_nodes.append(node)
-        
-        if len(suitable_nodes) < self.replication_factor:
-            print(f"Not enough nodes for block {block_id}. Need {self.replication_factor}, have {len(suitable_nodes)}")
+        if len(nodes) < self.replication_factor:
+            print(f"Not enough active nodes. Need {self.replication_factor}, have {len(nodes)}")
             return None
         
-        # Sort by available space
-        suitable_nodes.sort(key=lambda x: x.get_available_space(), reverse=True)
+        # Sort nodes by available space (descending)
+        nodes.sort(key=lambda x: x.get_available_space(), reverse=True)
         
-        # Select nodes for replication
-        selected_nodes = suitable_nodes[:self.replication_factor]
         stored_nodes = []
         
-        for node in selected_nodes:
-            # Create block filename
-            block_filename = f"{block_id}.block"
-            
-            # Store on node
-            success, result = node.store_file({
-                'filename': block_filename,
-                'content': block_content,
-                'size': block_size
-            }, user_id)
-            
-            if success:
-                stored_nodes.append(node.node_id)
+        # Try to store block on multiple nodes for replication
+        for node in nodes:
+            # Check if this node has ANY space available (not necessarily for the entire block)
+            if node.get_available_space() > 0:
+                # Create block filename
+                block_filename = f"{block_id}.block"
+                
+                print(f"  Trying node {node.node_id} (available: {self.format_size(node.get_available_space())})")
+                
+                # Try to store on this node
+                success, result = node.store_file({
+                    'filename': block_filename,
+                    'content': block_content,
+                    'size': block_size
+                }, user_id)
+                
+                if success:
+                    stored_nodes.append(node.node_id)
+                    print(f"  ✓ Stored on node {node.node_id}")
+                    
+                    # If we've stored enough replicas, stop
+                    if len(stored_nodes) >= self.replication_factor:
+                        break
+                else:
+                    print(f"  ✗ Failed on node {node.node_id}: {result}")
             else:
-                print(f"Failed to store block {block_id} on node {node.node_id}: {result}")
+                print(f"  ✗ Node {node.node_id} has no space available")
         
-        if len(stored_nodes) >= 1:  # At least one copy
+        # Return success if we stored at least one copy (in production you might want all replicas)
+        if len(stored_nodes) >= 1:  # Changed from >= 1 to >= self.replication_factor if you want strict replication
             return {
                 'block_id': block_id,
                 'nodes': stored_nodes,
                 'replication': len(stored_nodes)
             }
-        
-        return None
+        else:
+            print(f"Failed to store block {block_id} on any node")
+            return None
     
     def _delete_block(self, block_id, user_id):
         """Delete a block from all nodes"""
@@ -216,7 +231,7 @@ class StorageManager:
         }
     
     def _retrieve_block(self, block_id, user_id):
-        """Retrieve a block from any node"""
+        """Retrieve a block from any node that has it"""
         nodes = self.node_registry.get_active_nodes()
         
         for node in nodes:
@@ -341,3 +356,20 @@ class StorageManager:
             'total_nodes': len(nodes),
             'total_space': self.get_available_space()
         }
+    
+    def get_node_distribution_info(self):
+        """Get information about how data is distributed across nodes"""
+        nodes = self.node_registry.get_active_nodes()
+        distribution = []
+        
+        for node in nodes:
+            distribution.append({
+                'node_id': node.node_id,
+                'capacity': node.capacity,
+                'used': node.used_space,
+                'available': node.get_available_space(),
+                'is_active': node.is_active,
+                'usage_percent': (node.used_space / node.capacity * 100) if node.capacity > 0 else 0
+            })
+        
+        return distribution
