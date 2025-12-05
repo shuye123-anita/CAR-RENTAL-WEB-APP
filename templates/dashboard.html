@@ -3,57 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Car Rental Cloud Storage System</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>Dashboard - Car Rental Cloud Storage</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-    <div class="wrapper">
-        <header class="header">
+    <div class="dashboard">
+        <header class="dash-header">
             <div class="logo">
                 <i class="fas fa-car-side"></i>
                 <h1>Car Rental Cloud Storage</h1>
             </div>
-            <p>Secure • Private • Unlimited Access</p>
+            <div class="user-info">
+                <span>Welcome back, <strong>{{ username }}</strong>!</span>
+                <a href="/logout" class="logout-btn">Logout</a>
+            </div>
         </header>
 
-        <main class="main">
-            <!-- Storage Usage Card -->
+        <main class="dash-main">
             <div class="storage-card">
-                <h3><i class="fas fa-hdd"></i> Storage Overview</h3>
+                <h3>Storage Overview</h3>
                 <div class="progress-container">
                     <div class="progress-bar">
                         <div class="progress-fill" id="usage-bar"></div>
                     </div>
-                    <div class="progress-text">
-                        <span id="used-space">0 MB</span> of 
-                        <strong>1.25 GB</strong> used (<span id="used-percent">0</span>%)
-                    </div>
+                    <p>Used: <span id="used-space">0 B</span> of 1.25 GB (<span id="used-percent">0</span>%)</p>
                 </div>
             </div>
 
-            <!-- Upload Area -->
-            <div class="upload-card" id="drop-zone">
-                <i class="fas fa-cloud-upload-alt upload-icon"></i>
+            <div class="upload-area" id="drop-zone">
+                <i class="fas fa-cloud-upload-alt"></i>
                 <h2>Drop files here to upload</h2>
                 <p>or</p>
-                <button class="btn-upload" onclick="document.getElementById('file-input').click()">
-                    <i class="fas fa-folder-open"></i> Choose Files
+                <button onclick="document.getElementById('file-input').click()" class="upload-btn">
+                    Choose Files
                 </button>
                 <input type="file" id="file-input" multiple style="display:none">
-                <small>Maximum file size: 100 MB</small>
+                <small>Max 100MB • Files encrypted & distributed</small>
             </div>
 
-            <!-- Files List -->
-            <div class="files-card">
-                <h3><i class="fas fa-folder-open"></i> Your Uploaded Files</h3>
+            <div class="files-section">
+                <h3>Your Files</h3>
                 <div id="files-table"></div>
             </div>
         </main>
 
         <footer>
-            <p>&copy; 2025 Car Rental Cloud Storage System • All files encrypted & distributed</p>
+            © 2025 Car Rental Cloud Storage System • All files encrypted & distributed
         </footer>
     </div>
 
