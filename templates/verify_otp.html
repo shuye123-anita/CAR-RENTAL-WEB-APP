@@ -1,24 +1,41 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>{{ title }} - Car Rental Cloud</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify OTP - Car Rental Cloud</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
-<body>
+<body class="auth-body">
     <div class="auth-container">
-        <h2>Enter OTP</h2>
-        <p>Check your email: <strong>{{ email }}</strong></p>
-        <form method="post">
-            <input type="text" name="otp" placeholder="6-digit code" maxlength="6" required>
-            <button type="submit">Verify</button>
-        </form>
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for cat, msg in messages %}
-                    <div class="alert {{ cat }}">{{ msg }}</div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
+        <div class="auth-box">
+            <div class="auth-header">
+                <i class="fas fa-shield-alt"></i>
+                <h1>Verify Login</h1>
+            </div>
+            <h2>Enter 6-Digit Code</h2>
+            <p style="margin:20px 0; color:#ccc;">We sent a code to your email</p>
+            
+            <form method="post" class="auth-form">
+                <div class="input-group" style="margin:30px 0;">
+                    <input type="text" name="otp" placeholder="000000" maxlength="6" required 
+                           style="text-align:center; font-size:2.5rem; letter-spacing:15px; padding:20px;">
+                </div>
+                <button type="submit" class="auth-btn">Verify & Login</button>
+            </form>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, msg in messages %}
+                        <div class="alert {{ 'alert-success' if category == 'success' else 'alert-error' }}">
+                            {{ msg }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+        </div>
     </div>
 </body>
 </html>
