@@ -3,188 +3,60 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Cloud Storage</title>
+    <title>Car Rental Cloud Storage System</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-    <div class="dashboard-container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <h2><i class="fas fa-cloud"></i> Cloud Storage</h2>
-                <p class="user-info" id="sidebar-user">Loading...</p>
+    <div class="wrapper">
+        <header class="header">
+            <div class="logo">
+                <i class="fas fa-car-side"></i>
+                <h1>Car Rental Cloud Storage</h1>
             </div>
+            <p>Secure • Private • Unlimited Access</p>
+        </header>
 
-            <nav class="sidebar-nav">
-                <ul>
-                    <li class="active">
-                        <a href="#" onclick="showSection('files')">
-                            <i class="fas fa-folder"></i> My Files
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" onclick="showSection('upload')">
-                            <i class="fas fa-upload"></i> Upload
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" onclick="showSection('storage')">
-                            <i class="fas fa-chart-pie"></i> Storage
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#" onclick="showSection('nodes')">
-                            <i class="fas fa-server"></i> Nodes
-                        </a>
-                    </li>
-                </ul>
-            </nav>
-
-            <div class="storage-meter">
-                <h3>Storage Usage</h3>
-                <div class="meter">
-                    <div class="meter-bar">
-                        <div class="meter-fill" id="storage-meter-fill"></div>
-                    </div>
-                    <div class="meter-info">
-                        <span id="storage-used">0 GB</span> / 
-                        <span id="storage-total">1.25 GB</span>
-                        <span id="storage-percent">0%</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="sidebar-footer">
-                <button class="btn btn-logout" onclick="logout()">
-                    <i class="fas fa-sign-out-alt"></i> Logout
-                </button>
-            </div>
-        </aside>
-
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Files Section -->
-            <section id="files-section" class="content-section active">
-                <div class="section-header">
-                    <h1><i class="fas fa-folder"></i> My Files</h1>
-                    <button class="btn btn-primary" onclick="showSection('upload')">
-                        <i class="fas fa-plus"></i> Upload File
-                    </button>
-                </div>
-
-                <div class="search-bar">
-                    <input type="text" id="search-input" placeholder="Search files...">
-                    <i class="fas fa-search"></i>
-                </div>
-
-                <div class="files-container">
-                    <table class="files-table">
-                        <thead>
-                            <tr>
-                                <th>Filename</th>
-                                <th>Size</th>
-                                <th>Uploaded</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="files-table-body">
-                            <!-- Files will be loaded here -->
-                            <tr id="no-files">
-                                <td colspan="4" class="empty-state">
-                                    <i class="fas fa-folder-open"></i>
-                                    <p>No files uploaded yet</p>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-
-            <!-- Upload Section -->
-            <section id="upload-section" class="content-section">
-                <div class="section-header">
-                    <h1><i class="fas fa-upload"></i> Upload File</h1>
-                    <button class="btn btn-outline" onclick="showSection('files')">
-                        <i class="fas fa-arrow-left"></i> Back to Files
-                    </button>
-                </div>
-
-                <div class="upload-area" id="drop-zone">
-                    <div class="upload-icon">
-                        <i class="fas fa-cloud-upload-alt"></i>
-                    </div>
-                    <h3>Drag & Drop Files Here</h3>
-                    <p>or</p>
-                    <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
-                        <i class="fas fa-folder-open"></i> Browse Files
-                    </button>
-                    <input type="file" id="file-input" style="display: none;">
-                    <p class="upload-hint">Max file size: 100MB</p>
-                </div>
-
-                <div class="upload-progress" id="upload-progress" style="display: none;">
-                    <h3>Upload Progress</h3>
+        <main class="main">
+            <!-- Storage Usage Card -->
+            <div class="storage-card">
+                <h3><i class="fas fa-hdd"></i> Storage Overview</h3>
+                <div class="progress-container">
                     <div class="progress-bar">
-                        <div class="progress-fill" id="progress-fill"></div>
+                        <div class="progress-fill" id="usage-bar"></div>
                     </div>
-                    <p id="progress-text">0%</p>
-                </div>
-            </section>
-
-            <!-- Storage Section -->
-            <section id="storage-section" class="content-section">
-                <div class="section-header">
-                    <h1><i class="fas fa-chart-pie"></i> Storage Overview</h1>
-                </div>
-
-                <div class="storage-stats">
-                    <div class="stat-card">
-                        <i class="fas fa-database"></i>
-                        <h3>Total Storage</h3>
-                        <p id="stat-total">1.25 GB</p>
-                    </div>
-                    <div class="stat-card">
-                        <i class="fas fa-hdd"></i>
-                        <h3>Used Space</h3>
-                        <p id="stat-used">0 GB</p>
-                    </div>
-                    <div class="stat-card">
-                        <i class="fas fa-sd-card"></i>
-                        <h3>Available</h3>
-                        <p id="stat-available">1.25 GB</p>
-                    </div>
-                    <div class="stat-card">
-                        <i class="fas fa-percentage"></i>
-                        <h3>Usage</h3>
-                        <p id="stat-percentage">0%</p>
+                    <div class="progress-text">
+                        <span id="used-space">0 MB</span> of 
+                        <strong>1.25 GB</strong> used (<span id="used-percent">0</span>%)
                     </div>
                 </div>
+            </div>
 
-                <div class="storage-chart">
-                    <canvas id="storageChart"></canvas>
-                </div>
-            </section>
+            <!-- Upload Area -->
+            <div class="upload-card" id="drop-zone">
+                <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                <h2>Drop files here to upload</h2>
+                <p>or</p>
+                <button class="btn-upload" onclick="document.getElementById('file-input').click()">
+                    <i class="fas fa-folder-open"></i> Choose Files
+                </button>
+                <input type="file" id="file-input" multiple style="display:none">
+                <small>Maximum file size: 100 MB</small>
+            </div>
 
-            <!-- Nodes Section -->
-            <section id="nodes-section" class="content-section">
-                <div class="section-header">
-                    <h1><i class="fas fa-server"></i> Storage Nodes</h1>
-                    <button class="btn btn-refresh" onclick="loadNodes()">
-                        <i class="fas fa-sync-alt"></i> Refresh
-                    </button>
-                </div>
-
-                <div class="nodes-container" id="nodes-list">
-                    <!-- Nodes will be loaded here -->
-                    <div class="loading">Loading nodes...</div>
-                </div>
-            </section>
+            <!-- Files List -->
+            <div class="files-card">
+                <h3><i class="fas fa-folder-open"></i> Your Uploaded Files</h3>
+                <div id="files-table"></div>
+            </div>
         </main>
+
+        <footer>
+            <p>&copy; 2025 Car Rental Cloud Storage System • All files encrypted & distributed</p>
+        </footer>
     </div>
 
-    <!-- Chart.js for storage chart -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
