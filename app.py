@@ -1,11 +1,13 @@
-from flask import Flask, request, jsonify, send_file, render_template, redirect, url_for, flash
+# app.py - Modified to use '127.0.0.1' for gRPC connection
+from flask import Flask, request, jsonify, send_file, render_template, redirect, url_for, flash, session
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from models import db, User
 from config import Config
-import os, hashlib, json, random, time, io, smtplib, ssl
-from email.message import EmailMessage
+import os, hashlib, json, random, time, io
 from dotenv import load_dotenv
-import bcrypt
+import grpc
+import auth_pb2
+import auth_pb2_grpc
 
 load_dotenv()
 
@@ -17,118 +19,87 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-# Create database and storage nodes
+# gRPC Client - Changed to '127.0.0.1'
+channel = grpc.insecure_channel('127.0.0.1:50051')
+stub = auth_pb2_grpc.AuthServiceStub(channel)
+
+# Create DB & nodes
 with app.app_context():
     db.create_all()
     os.makedirs("node_storage", exist_ok=True)
     for i in range(1, 6):
         os.makedirs(f"node_storage/node_{i}", exist_ok=True)
 
-# Safe config values
 BLOCK_SIZE = getattr(Config, 'BLOCK_SIZE', 64 * 1024)
 REPLICATION = getattr(Config, 'REPLICATION', 2)
 
 def get_nodes():
     return [f"node_storage/node_{i}" for i in range(1, 6)]
 
-def send_otp_email(email, otp, name="User"):
-    msg = EmailMessage()
-    msg['Subject'] = "Car Rental Cloud - Your Login Code"
-    msg['From'] = os.getenv("MAIL_USERNAME")
-    msg['To'] = email
-    msg.set_content(f"""
-    <div style="font-family:Arial;text-align:center;padding:50px;background:#0a0a1a;color:white">
-        <div style="background:#1a1a2e;padding:50px;border-radius:20px;display:inline-block;border:2px solid #00d4ff">
-            <h1 style="color:#00d4ff">Car Rental Cloud</h1>
-            <p style="font-size:20px">Hello <strong>{name}</strong>!</p>
-            <p style="font-size:18px">Your secure login code:</p>
-            <h2 style="font-size:60px;letter-spacing:20px;color:#00ffcc;background:#000;padding:20px;border-radius:15px">{otp}</h2>
-            <p style="color:#aaa">Valid for 5 minutes</p>
-        </div>
-    </div>
-    """, subtype='html')
-
-    context = ssl.create_default_context()
-    with smtplib.SMTP(os.getenv("MAIL_SERVER"), int(os.getenv("MAIL_PORT"))) as server:
-        server.starttls(context=context)
-        server.login(os.getenv("MAIL_USERNAME"), os.getenv("MAIL_PASSWORD"))
-        server.send_message(msg)
-
-# Temporary OTP storage
-otp_store = {}
-
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# === ROUTES ===
 @app.route('/')
 def index():
-    if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
-    return redirect(url_for('login'))
+    return redirect(url_for('login')) if not current_user.is_authenticated else redirect(url_for('dashboard'))
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
-        name = request.form['name']
-        username = request.form['username'].lower()
-        email = request.form['email'].lower()
-        password = request.form['password']
-
-        if User.query.filter_by(username=username).first():
-            flash("Username already taken!", "error")
-        elif User.query.filter_by(email=email).first():
-            flash("Email already registered!", "error")
-        else:
-            user = User(name=name, username=username, email=email)
-            user.set_password(password)
-            db.session.add(user)
-            db.session.commit()
-            flash("Account created successfully! Please login.", "success")
-            return redirect(url_for('login'))
+        req = auth_pb2.SignupRequest(
+            name=request.form['name'],
+            username=request.form['username'],
+            email=request.form['email'],
+            password=request.form['password']
+        )
+        try:
+            resp = stub.Signup(req, timeout=10)
+            if resp.success:
+                flash("Account created! Please login.", "success")
+                return redirect(url_for('login'))
+            else:
+                flash(resp.message, "error")
+        except grpc.RpcError:
+            flash("Authentication service unavailable", "error")
     return render_template('signup.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username'].lower()
-        password = request.form['password']
-        user = User.query.filter_by(username=username).first()
-
-        if user and user.check_password(password):
-            # Correct credentials → send OTP
-            otp = ''.join([str(random.randint(0,9)) for _ in range(6)])
-            otp_store[user.id] = {"otp": otp, "time": time.time()}
-            send_otp_email(user.email, otp, user.name)
-            flash("OTP sent to your email!", "success")
-            return redirect(url_for('verify_otp', user_id=user.id))
-        else:
-            flash("Invalid username or password", "error")
+        req = auth_pb2.LoginRequest(
+            username=request.form['username'],
+            password=request.form['password']
+        )
+        try:
+            resp = stub.Login(req, timeout=10)
+            if resp.success:
+                flash("OTP sent to your email!", "success")
+                return redirect(url_for('verify_otp', user_id=resp.user_id))
+            else:
+                flash(resp.message, "error")
+        except grpc.RpcError:
+            flash("Auth service down. Try again later.", "error")
     return render_template('login.html')
 
 @app.route('/verify-otp/<int:user_id>', methods=['GET', 'POST'])
 def verify_otp(user_id):
     if request.method == 'POST':
-        entered_otp = request.form['otp']
-        data = otp_store.get(user_id)
-
-        if not data:
-            flash("OTP expired. Please login again.", "error")
-            return redirect(url_for('login'))
-
-        if time.time() - data["time"] > 300:
-            del otp_store[user_id]
-            flash("OTP expired!", "error")
-            return redirect(url_for('login'))
-
-        if entered_otp == data["otp"]:
-            user = User.query.get(user_id)
-            login_user(user)
-            del otp_store[user_id]
-            return redirect(url_for('dashboard'))
-        else:
-            flash("Wrong OTP!", "error")
+        req = auth_pb2.VerifyOTPRequest(user_id=user_id, otp=request.form['otp'])
+        try:
+            resp = stub.VerifyOTP(req, timeout=10)
+            if resp.success:
+                user = User.query.get(user_id)
+                if user:
+                    login_user(user)
+                    session['grpc_token'] = resp.session_token
+                    return redirect(url_for('dashboard'))
+                else:
+                    flash("User not found", "error")
+            else:
+                flash(resp.message, "error")
+        except grpc.RpcError:
+            flash("Auth service error", "error")
 
     user = User.query.get(user_id)
     return render_template('verify_otp.html', name=user.name if user else "User")
@@ -145,7 +116,7 @@ def logout():
 def dashboard():
     return render_template('dashboard.html', username=current_user.username)
 
-# === STORAGE APIs (Protected) ===
+# === STORAGE APIs (UNCHANGED) ===
 @app.route('/api/upload', methods=['POST'])
 @login_required
 def upload():
@@ -170,11 +141,8 @@ def upload():
                 f.write(block_data)
 
     manifest = {
-        "id": file_id,
-        "name": name,
-        "size": size,
-        "blocks": len(blocks),
-        "uploaded": time.time(),
+        "id": file_id, "name": name, "size": size,
+        "blocks": len(blocks), "uploaded": time.time(),
         "user": current_user.id
     }
     for node in nodes:
