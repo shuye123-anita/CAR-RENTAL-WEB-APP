@@ -1,4 +1,4 @@
-# auth_server.py - Modified to use '127.0.0.1' for gRPC binding
+# auth_server.py - FIXED to avoid circular import and use '127.0.0.1' binding
 import grpc
 from concurrent import futures
 import time
@@ -35,7 +35,7 @@ def send_otp_email(email, otp, name="User"):
             <h1 style="color:#00d4ff">Car Rental Cloud</h1>
             <p style="font-size:20px">Hello <strong>{name}</strong>!</p>
             <p style="font-size:18px">Your secure login code:</p>
-            <h2 style="font-size:60px;letter-spacing:20px;color:#00ffcc;background:#000;padding:20px;border-radius:15px">{otp}</h2>
+            <h2 style="font-size:60px;letter-spacing:15px;padding:20px;">{otp}</h2>
             <p style="color:#aaa">Valid for 5 minutes</p>
         </div>
     </div>
@@ -95,14 +95,18 @@ class AuthServiceServicer(auth_pb2_grpc.AuthServiceServicer):
         )
 
 def serve():
-    # Initialize DB
-    from app import app
-    with app.app_context():
+    # Create a temporary Flask app to initialize DB (avoids circular import)
+    from flask import Flask
+    from config import Config
+    temp_app = Flask(__name__)
+    temp_app.config.from_object(Config)
+    db.init_app(temp_app)
+    with temp_app.app_context():
         db.create_all()
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     auth_pb2_grpc.add_AuthServiceServicer_to_server(AuthServiceServicer(), server)
-    server.add_insecure_port('127.0.0.1:50051')  # Modified for IPv4 binding
+    server.add_insecure_port('127.0.0.1:50051')
     print("gRPC Auth Server running on port 50051")
     server.start()
     server.wait_for_termination()
