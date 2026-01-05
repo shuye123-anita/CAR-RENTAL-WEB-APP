@@ -1,115 +1,149 @@
-# auth_server.py - FIXED to avoid circular import and use '127.0.0.1' binding
+# auth_server.py - gRPC Auth Server
 import grpc
 from concurrent import futures
 import time
 import os
 import random
-import smtplib
-import ssl
-from email.message import EmailMessage
-from dotenv import load_dotenv
+import sys
 import auth_pb2
 import auth_pb2_grpc
 import bcrypt
 
-load_dotenv()
+print("=" * 60)
+print("🚀 Starting gRPC Auth Server...")
+print("=" * 60)
 
-MAIL_SERVER = os.getenv("MAIL_SERVER")
-MAIL_PORT = int(os.getenv("MAIL_PORT"))
-MAIL_USERNAME = os.getenv("MAIL_USERNAME")
-MAIL_PASSWORD = os.getenv("MAIL_PASSWORD")
-
-from models import db, User
-
+# Simple in-memory storage (no database needed for now)
+users_db = {}
 otp_store = {}
-active_sessions = {}
-
-def send_otp_email(email, otp, name="User"):
-    msg = EmailMessage()
-    msg['Subject'] = "Car Rental Cloud - Your Login Code"
-    msg['From'] = MAIL_USERNAME
-    msg['To'] = email
-    msg.set_content(f"""
-    <div style="font-family:Arial;text-align:center;padding:50px;background:#0a0a1a;color:white">
-        <div style="background:#1a1a2e;padding:50px;border-radius:20px;display:inline-block;border:2px solid #00d4ff">
-            <h1 style="color:#00d4ff">Car Rental Cloud</h1>
-            <p style="font-size:20px">Hello <strong>{name}</strong>!</p>
-            <p style="font-size:18px">Your secure login code:</p>
-            <h2 style="font-size:60px;letter-spacing:15px;padding:20px;">{otp}</h2>
-            <p style="color:#aaa">Valid for 5 minutes</p>
-        </div>
-    </div>
-    """, subtype='html')
-
-    context = ssl.create_default_context()
-    with smtplib.SMTP(MAIL_SERVER, MAIL_PORT) as server:
-        server.starttls(context=context)
-        server.login(MAIL_USERNAME, MAIL_PASSWORD)
-        server.send_message(msg)
 
 class AuthServiceServicer(auth_pb2_grpc.AuthServiceServicer):
     def Signup(self, request, context):
-        if User.query.filter_by(username=request.username.lower()).first():
-            return auth_pb2.SignupResponse(success=False, message="Username already taken!")
-        if User.query.filter_by(email=request.email.lower()).first():
-            return auth_pb2.SignupResponse(success=False, message="Email already registered!")
-
-        new_user = User(
-            name=request.name,
-            username=request.username.lower(),
-            email=request.email.lower()
+        print(f"📝 Signup request: {request.username}")
+        if request.username in users_db:
+            return auth_pb2.SignupResponse(
+                success=False, 
+                message="Username already exists"
+            )
+        
+        # Store user in memory
+        user_id = len(users_db) + 1
+        users_db[request.username] = {
+            'id': user_id,
+            'name': request.name,
+            'email': request.email,
+            'password': request.password  # In real app, hash this
+        }
+        
+        print(f"✅ User created: {request.username} (ID: {user_id})")
+        return auth_pb2.SignupResponse(
+            success=True, 
+            message="Account created successfully!"
         )
-        new_user.set_password(request.password)
-        db.session.add(new_user)
-        db.session.commit()
-
-        return auth_pb2.SignupResponse(success=True, message="Account created successfully!")
-
+    
     def Login(self, request, context):
-        user = User.query.filter_by(username=request.username.lower()).first()
-        if not user or not user.check_password(request.password):
-            return auth_pb2.LoginResponse(success=False, message="Invalid username or password")
-
-        otp = ''.join(str(random.randint(0,9)) for _ in range(6))
-        otp_store[user.id] = {"otp": otp, "time": time.time()}
-        send_otp_email(user.email, otp, user.name)
-
-        return auth_pb2.LoginResponse(success=True, message="OTP sent!", user_id=user.id)
-
+        print(f"🔐 Login attempt: {request.username}")
+        
+        if request.username not in users_db:
+            return auth_pb2.LoginResponse(
+                success=False, 
+                message="Invalid username or password"
+            )
+        
+        user = users_db[request.username]
+        
+        # Simple password check
+        if request.password != user['password']:
+            return auth_pb2.LoginResponse(
+                success=False, 
+                message="Invalid username or password"
+            )
+        
+        # Generate OTP
+        otp = str(random.randint(100000, 999999))
+        otp_store[user['id']] = {
+            "otp": otp, 
+            "time": time.time(),
+            "username": request.username
+        }
+        
+        print(f"✅ Generated OTP for {request.username}: {otp}")
+        print(f"   User ID: {user['id']}")
+        
+        return auth_pb2.LoginResponse(
+            success=True, 
+            message="OTP sent! (Check console)",
+            user_id=user['id']
+        )
+    
     def VerifyOTP(self, request, context):
-        data = otp_store.get(request.user_id)
-        if not data or time.time() - data["time"] > 300:
-            return auth_pb2.VerifyOTPResponse(success=False, message="OTP expired or invalid")
-
-        if request.otp != data["otp"]:
-            return auth_pb2.VerifyOTPResponse(success=False, message="Wrong OTP")
-
+        print(f"🔢 OTP verification for user_id: {request.user_id}")
+        
+        if request.user_id not in otp_store:
+            return auth_pb2.VerifyOTPResponse(
+                success=False, 
+                message="OTP expired or invalid"
+            )
+        
+        stored = otp_store[request.user_id]
+        
+        # Check if OTP expired (5 minutes)
+        if time.time() - stored["time"] > 300:
+            del otp_store[request.user_id]
+            return auth_pb2.VerifyOTPResponse(
+                success=False, 
+                message="OTP expired"
+            )
+        
+        # Check OTP
+        if request.otp != stored["otp"]:
+            return auth_pb2.VerifyOTPResponse(
+                success=False, 
+                message="Wrong OTP"
+            )
+        
+        # OTP is correct
         del otp_store[request.user_id]
-        session_token = os.urandom(32).hex()
-        active_sessions[session_token] = request.user_id
-
+        
+        print(f"✅ OTP verified for user_id: {request.user_id}")
         return auth_pb2.VerifyOTPResponse(
             success=True,
-            message="Login successful",
-            session_token=session_token
+            message="Login successful!",
+            session_token=f"session-{request.user_id}"
         )
 
 def serve():
-    # Create a temporary Flask app to initialize DB (avoids circular import)
-    from flask import Flask
-    from config import Config
-    temp_app = Flask(__name__)
-    temp_app.config.from_object(Config)
-    db.init_app(temp_app)
-    with temp_app.app_context():
-        db.create_all()
-
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    auth_pb2_grpc.add_AuthServiceServicer_to_server(AuthServiceServicer(), server)
-    server.add_insecure_port('127.0.0.1:50051')
-    print("gRPC Auth Server running on port 50051")
-    server.start()
-    server.wait_for_termination()
+    # Try multiple ports if 50051 is busy
+    ports = [50051, 50052, 50053, 50054]
+    
+    for port in ports:
+        try:
+            server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+            auth_pb2_grpc.add_AuthServiceServicer_to_server(AuthServiceServicer(), server)
+            server.add_insecure_port(f'127.0.0.1:{port}')
+            server.start()
+            
+            print(f"✅ Auth Server is RUNNING on 127.0.0.1:{port}")
+            print("=" * 60)
+            print("Server is ready! Keep this window open.")
+            print("=" * 60)
+            
+            # Keep server running
+            try:
+                while True:
+                    time.sleep(3600)
+            except KeyboardInterrupt:
+                print("\n👋 Server stopped by user")
+                server.stop(0)
+                
+        except Exception as e:
+            if "Address already in use" in str(e):
+                print(f"⚠️ Port {port} is busy, trying next port...")
+                continue
+            else:
+                raise e
+    
+    print("❌ Could not start server on any port")
 
 if __name__ == '__main__':
     serve()
