@@ -24,21 +24,11 @@ class File(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     filename = db.Column(db.String(255), nullable=False)
     original_name = db.Column(db.String(255), nullable=False)
-    file_size = db.Column(db.Integer, nullable=False)  # Size in bytes
+    file_size = db.Column(db.Integer, nullable=False)
     file_type = db.Column(db.String(50))
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     upload_date = db.Column(db.DateTime, default=datetime.utcnow)
-    storage_nodes = db.Column(db.String(255))  # Comma-separated node IDs
-    is_encrypted = db.Column(db.Boolean, default=True)
+    chunks = db.Column(db.Integer, nullable=False, default=0)           # NEW
+    storage_nodes = db.Column(db.String(255))                           # NEW
     
-    # Relationships
     user = db.relationship('User', backref='files')
-
-class StorageNode(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    node_name = db.Column(db.String(50), nullable=False)
-    node_path = db.Column(db.String(255), nullable=False)
-    total_space = db.Column(db.Integer, default=250*1024*1024)  # 250MB
-    used_space = db.Column(db.Integer, default=0)
-    is_active = db.Column(db.Boolean, default=True)
-    last_checked = db.Column(db.DateTime, default=datetime.utcnow)
