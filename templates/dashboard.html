@@ -7,6 +7,23 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        /* Fix inline styles that were causing VS Code CSS validation errors */
+        .hidden-input {
+            display: none;
+        }
+        
+        .no-files-message {
+            text-align: center;
+            padding: 60px;
+            color: #95a5a6;
+        }
+        
+        .drag-over {
+            border-color: #00d4ff !important;
+            background: rgba(0, 212, 255, 0.1) !important;
+        }
+    </style>
 </head>
 <body>
     <div class="dashboard">
@@ -26,9 +43,9 @@
                 <h3>Storage Overview</h3>
                 <div class="progress-container">
                     <div class="progress-bar">
-                        <div class="progress-fill" id="usage-bar"></div>
+                        <div class="progress-fill" id="usage-bar" style="width: {{ used_percent }}%;"></div>
                     </div>
-                    <p>Used: <span id="used-space">0 B</span> of 1.25 GB (<span id="used-percent">0</span>%)</p>
+                    <p>Used: <span id="used-space">{{ used_bytes }}</span> of {{ total_bytes }} ({{ used_percent }}%)</p>
                 </div>
             </div>
 
@@ -36,44 +53,106 @@
                 <i class="fas fa-cloud-upload-alt"></i>
                 <h2>Drop files here to upload</h2>
                 <p>or</p>
-                <button onclick="document.getElementById('file-input').click()" class="upload-btn">
+                <button type="button" class="upload-btn">
                     Choose Files
                 </button>
-                <input type="file" id="file-input" multiple style="display:none">
-                <small>Max 100MB • Files encrypted & distributed</small>
+                <input type="file" id="file-input" multiple class="hidden-input">
+                <small>Up to total available space • All file types • Multiple files</small>
             </div>
 
             <div class="files-section">
                 <h3>Your Files</h3>
-                <div id="files-table"></div>
+                {% if files %}
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>File Name</th>
+                                <th>Size</th>
+                                <th>Upload Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for file in files %}
+                            <tr>
+                                <td>{{ file.original_name }}</td>
+                                <td>{{ "%.2f MB" | format(file.file_size / (1024 * 1024)) }}</td>
+                                <td>{{ file.upload_date.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>
+                                    <a href="{{ url_for('download_file', file_id=file.id) }}" class="action-btn download">Download</a>
+                                    <a href="{{ url_for('delete_file', file_id=file.id) }}" class="action-btn delete" onclick="return confirm('Delete this file?')">Delete</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    <div class="no-files-message">
+                        <i class="fas fa-cloud-upload-alt fa-4x"></i><br><br>
+                        <h3>No files yet</h3>
+                        <p>Upload your first file to get started</p>
+                    </div>
+                {% endif %}
             </div>
         </main>
 
         <footer>
-            © 2025 Car Rental Cloud Storage System • All files encrypted & distributed
+            © 2026 Car Rental Cloud Storage System
         </footer>
     </div>
 
     <script>
-        // Simple JavaScript for the dashboard
-        document.getElementById('usage-bar').style.width = '25%';
-        document.getElementById('used-space').textContent = '320 MB';
-        document.getElementById('used-percent').textContent = '25';
-        
-        // File upload simulation
-        document.getElementById('drop-zone').addEventListener('click', function() {
-            alert('File upload functionality will be implemented in the next phase!');
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const chooseBtn = dropZone.querySelector('.upload-btn');
+
+        dropZone.addEventListener('click', (e) => {
+            if (e.target !== fileInput) fileInput.click();
         });
-        
-        // Display sample files
-        document.getElementById('files-table').innerHTML = `
-            <div style="text-align:center; padding:60px; color:#95a5a6;">
-                <i class="fas fa-cloud-upload-alt fa-4x"></i><br><br>
-                <h3>No files yet</h3>
-                <p>Upload your first file to get started</p>
-                <p><small>File storage functionality coming soon!</small></p>
-            </div>
-        `;
+
+        chooseBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                const formData = new FormData();
+                for (let f of fileInput.files) {
+                    formData.append('file', f);
+                }
+
+                chooseBtn.textContent = 'Uploading...';
+                chooseBtn.disabled = true;
+
+                fetch('/upload', { method: 'POST', body: formData })
+                    .then(() => location.reload())
+                    .catch(() => {
+                        alert('Upload failed');
+                        location.reload();
+                    });
+            }
+        });
+
+        // Drag & drop visual feedback using class instead of inline style
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
+            dropZone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); });
+        });
+
+        ['dragenter', 'dragover'].forEach(ev => {
+            dropZone.addEventListener(ev, () => dropZone.classList.add('drag-over'));
+        });
+
+        ['dragleave', 'drop'].forEach(ev => {
+            dropZone.addEventListener(ev, () => dropZone.classList.remove('drag-over'));
+        });
+
+        dropZone.addEventListener('drop', e => {
+            if (e.dataTransfer.files.length > 0) {
+                fileInput.files = e.dataTransfer.files;
+                fileInput.dispatchEvent(new Event('change'));
+            }
+        });
     </script>
 </body>
 </html>
