@@ -54,6 +54,26 @@
         </footer>
     </div>
 
-    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script>
+        // Simple JavaScript for the dashboard
+        document.getElementById('usage-bar').style.width = '25%';
+        document.getElementById('used-space').textContent = '320 MB';
+        document.getElementById('used-percent').textContent = '25';
+        
+        // File upload simulation
+        document.getElementById('drop-zone').addEventListener('click', function() {
+            alert('File upload functionality will be implemented in the next phase!');
+        });
+        
+        // Display sample files
+        document.getElementById('files-table').innerHTML = `
+            <div style="text-align:center; padding:60px; color:#95a5a6;">
+                <i class="fas fa-cloud-upload-alt fa-4x"></i><br><br>
+                <h3>No files yet</h3>
+                <p>Upload your first file to get started</p>
+                <p><small>File storage functionality coming soon!</small></p>
+            </div>
+        `;
+    </script>
 </body>
 </html>
