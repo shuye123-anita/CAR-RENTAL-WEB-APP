@@ -1,3 +1,4 @@
+# app.py - Flask Web Application with SQLite
 from flask import Flask, request, render_template, redirect, url_for, flash
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from models import db, User
@@ -9,6 +10,7 @@ from dotenv import load_dotenv
 import grpc
 import auth_pb2
 import auth_pb2_grpc
+from datetime import datetime
 
 load_dotenv()
 
@@ -23,6 +25,7 @@ login_manager.login_view = 'login'
 print("=" * 60)
 print("🌐 Starting Flask Web Application...")
 print("=" * 60)
+print(f"📊 Database: {app.config['SQLALCHEMY_DATABASE_URI']}")
 
 # Auth Service Manager
 class AuthServiceManager:
@@ -93,8 +96,13 @@ if not auth_manager.is_connected():
 
 # Initialize database and storage
 with app.app_context():
+    # Create all database tables
     db.create_all()
-    print("✅ Database initialized")
+    print("✅ SQLite database initialized (car_rental.db)")
+    
+    # Check if we have any users
+    user_count = User.query.count()
+    print(f"📊 Total users in database: {user_count}")
     
     # Create storage directories
     os.makedirs("node_storage", exist_ok=True)
@@ -105,18 +113,6 @@ with app.app_context():
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
-
-# Demo user for testing (since we're using in-memory auth)
-class DemoUser:
-    def __init__(self, user_id, username):
-        self.id = user_id
-        self.username = username
-        self.is_authenticated = True
-        self.is_active = True
-        self.is_anonymous = False
-    
-    def get_id(self):
-        return str(self.id)
 
 @app.route('/')
 def index():
@@ -140,9 +136,27 @@ def signup():
                 password=request.form['password']
             )
             resp = stub.Signup(req, timeout=10)
-            flash(resp.message, "success" if resp.success else "error")
+            
             if resp.success:
+                # Create user in SQLite database
+                try:
+                    user = User(
+                        name=request.form['name'],
+                        username=request.form['username'],
+                        email=request.form['email'],
+                        password_hash=request.form['password']  # In production, hash this!
+                    )
+                    db.session.add(user)
+                    db.session.commit()
+                    print(f"✅ User {request.form['username']} saved to SQLite database")
+                except Exception as db_error:
+                    print(f"⚠️ Could not save user to database: {db_error}")
+                
+                flash(resp.message, "success")
                 return redirect(url_for('login'))
+            else:
+                flash(resp.message, "error")
+                
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.UNAVAILABLE:
                 auth_manager.try_connect()
@@ -201,9 +215,23 @@ def verify_otp(user_id):
             resp = stub.VerifyOTP(req, timeout=10)
             
             if resp.success:
-                # Create a demo user for Flask-Login
-                demo_user = DemoUser(user_id, f"user{user_id}")
-                login_user(demo_user)
+                # Get user from SQLite database
+                user = User.query.filter_by(id=user_id).first()
+                if not user:
+                    # Create a temporary user if not found in database
+                    user = User.query.filter_by(username=f"user{user_id}").first()
+                    if not user:
+                        # Create demo user
+                        user = User(
+                            name=f"User {user_id}",
+                            username=f"user{user_id}",
+                            email=f"user{user_id}@example.com",
+                            password_hash="demo"
+                        )
+                        db.session.add(user)
+                        db.session.commit()
+                
+                login_user(user)
                 flash("Login successful!", "success")
                 return redirect(url_for('dashboard'))
             else:
@@ -231,9 +259,26 @@ def logout():
     flash("Logged out successfully", "success")
     return redirect(url_for('login'))
 
+@app.route('/db-info')
+@login_required
+def db_info():
+    """Debug endpoint to show database info"""
+    users = User.query.all()
+    info = {
+        'total_users': len(users),
+        'users': [{'id': u.id, 'username': u.username, 'email': u.email} for u in users],
+        'current_user': {
+            'id': current_user.id,
+            'username': current_user.username,
+            'email': current_user.email
+        }
+    }
+    return info
+
 if __name__ == '__main__':
     print("✅ Car Rental Cloud Storage System - LAUNCHED")
     print(f"🌐 Web App: http://127.0.0.1:5000")
+    print(f"📊 Database: {app.config['SQLALCHEMY_DATABASE_URI']}")
     if auth_manager.is_connected():
         print(f"🔌 Connected to Auth Server on port {auth_manager.port}")
     else:
