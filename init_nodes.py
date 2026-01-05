@@ -2,6 +2,7 @@ import os
 import shutil
 
 print("Setting up 5 storage nodes...")
+print("=" * 60)
 
 for i in range(1, 6):
     path = f"node_storage/node_{i}"
@@ -10,5 +11,6 @@ for i in range(1, 6):
     os.makedirs(path, exist_ok=True)
     print(f"Node {i} ready → {path}")
 
-print("\nAll nodes ready! Total storage: 1.25 GB")
+print("\n" + "=" * 60)
+print("All nodes ready! Total storage: 1.25 GB")
 print("Now run: python app.py")
