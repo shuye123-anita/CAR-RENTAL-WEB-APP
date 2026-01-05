@@ -1,9 +1,10 @@
-# app.py - FINAL WORKING VERSION WITH CONNECTION RETRY
-from flask import Flask, request, jsonify, send_file, render_template, redirect, url_for, flash, session
+from flask import Flask, request, render_template, redirect, url_for, flash
 from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from models import db, User
 from config import Config
-import os, hashlib, json, random, time, io
+import os
+import time
+import threading
 from dotenv import load_dotenv
 import grpc
 import auth_pb2
@@ -19,92 +20,204 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
-# ROBUST gRPC CONNECTION WITH RETRY
-def get_stub():
-    print("Connecting to gRPC server at 127.0.0.1:50051...")
-    for i in range(20):
-        try:
-            channel = grpc.insecure_channel('127.0.0.1:50051')
-            grpc.channel_ready_future(channel).result(timeout=3)
-            print("SUCCESS: Connected to Auth Server!")
-            return auth_pb2_grpc.AuthServiceStub(channel)
-        except:
-            print(f"Attempt {i+1}/20 - Auth server not ready soon...")
-            time.sleep(1)
-    return None
+print("=" * 60)
+print("🌐 Starting Flask Web Application...")
+print("=" * 60)
 
-stub = get_stub()
-if not stub:
-    print("FATAL: Could not connect to auth server. Is python auth_server.py running?")
-    exit()
+# Auth Service Manager
+class AuthServiceManager:
+    def __init__(self):
+        self.stub = None
+        self.port = None
+        self.connected = False
+        self.last_check = time.time()
+        
+    def get_stub(self):
+        # Check if we need to reconnect
+        if not self.connected or time.time() - self.last_check > 30:
+            self.try_connect()
+        return self.stub if self.connected else None
+    
+    def is_connected(self):
+        return self.connected
+    
+    def try_connect(self):
+        """Try to connect to auth server on various ports"""
+        ports = [50051, 50052, 50053, 50054]
+        
+        for port in ports:
+            try:
+                print(f"🔌 Trying to connect to auth server on port {port}...")
+                channel = grpc.insecure_channel(f'127.0.0.1:{port}', options=[
+                    ('grpc.max_receive_message_length', 100 * 1024 * 1024),
+                    ('grpc.max_send_message_length', 100 * 1024 * 1024),
+                ])
+                
+                # Try to establish connection
+                try:
+                    stub = auth_pb2_grpc.AuthServiceStub(channel)
+                    # Test with a quick call
+                    future = grpc.channel_ready_future(channel)
+                    future.result(timeout=2)
+                    
+                    self.stub = stub
+                    self.port = port
+                    self.connected = True
+                    self.last_check = time.time()
+                    
+                    print(f"✅ Connected to auth server on port {port}")
+                    return True
+                    
+                except grpc.FutureTimeoutError:
+                    print(f"⏱️  Timeout connecting to port {port}")
+                    continue
+                except Exception as e:
+                    print(f"⚠️  Connection test failed on port {port}: {str(e)[:50]}")
+                    continue
+                    
+            except Exception as e:
+                print(f"❌ Error on port {port}: {str(e)[:50]}")
+                continue
+        
+        print("❌ Could not connect to auth server")
+        self.connected = False
+        return False
 
-# Rest of your setup
+# Initialize auth manager
+auth_manager = AuthServiceManager()
+auth_manager.try_connect()
+
+if not auth_manager.is_connected():
+    print("⚠️ Auth server not found. Login/Signup will not work.")
+    print("💡 Start auth_server.py in another terminal")
+
+# Initialize database and storage
 with app.app_context():
     db.create_all()
+    print("✅ Database initialized")
+    
+    # Create storage directories
     os.makedirs("node_storage", exist_ok=True)
     for i in range(1, 6):
         os.makedirs(f"node_storage/node_{i}", exist_ok=True)
-
-BLOCK_SIZE = 64 * 1024
-REPLICATION = 2
-
-def get_nodes():
-    return [f"node_storage/node_{i}" for i in range(1, 6)]
+    print("✅ Storage nodes created")
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+# Demo user for testing (since we're using in-memory auth)
+class DemoUser:
+    def __init__(self, user_id, username):
+        self.id = user_id
+        self.username = username
+        self.is_authenticated = True
+        self.is_active = True
+        self.is_anonymous = False
+    
+    def get_id(self):
+        return str(self.id)
+
 @app.route('/')
 def index():
-    return redirect(url_for('login')) if not current_user.is_authenticated else redirect(url_for('dashboard'))
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
 
 @app.route('/signup', methods=['GET', 'POST'])
 def signup():
     if request.method == 'POST':
-        req = auth_pb2.SignupRequest(name=request.form['name'], username=request.form['username'],
-                                    email=request.form['email'], password=request.form['password'])
+        stub = auth_manager.get_stub()
+        if not stub:
+            flash("Auth server not available. Please start auth_server.py", "error")
+            return render_template('signup.html')
+        
         try:
+            req = auth_pb2.SignupRequest(
+                name=request.form['name'],
+                username=request.form['username'],
+                email=request.form['email'],
+                password=request.form['password']
+            )
             resp = stub.Signup(req, timeout=10)
             flash(resp.message, "success" if resp.success else "error")
             if resp.success:
                 return redirect(url_for('login'))
-        except:
-            flash("Cannot reach auth server", "error")
+        except grpc.RpcError as e:
+            if e.code() == grpc.StatusCode.UNAVAILABLE:
+                auth_manager.try_connect()
+                flash("Authentication service unavailable. Please try again.", "error")
+            else:
+                flash(f"Auth error: {e.details()}", "error")
+        except Exception as e:
+            flash(f"Cannot reach auth server: {str(e)[:100]}", "error")
+    
     return render_template('signup.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        req = auth_pb2.LoginRequest(username=request.form['username'], password=request.form['password'])
+        stub = auth_manager.get_stub()
+        if not stub:
+            flash("Auth server not available. Please start auth_server.py", "error")
+            return render_template('login.html')
+        
         try:
+            req = auth_pb2.LoginRequest(
+                username=request.form['username'],
+                password=request.form['password']
+            )
             resp = stub.Login(req, timeout=10)
+            
             if resp.success:
-                flash("Check your email! OTP sent.", "success")
+                flash("OTP sent! Check the auth server console.", "success")
                 return redirect(url_for('verify_otp', user_id=resp.user_id))
             else:
                 flash(resp.message, "error")
+        except grpc.RpcError as e:
+            if e.code() == grpc.StatusCode.UNAVAILABLE:
+                auth_manager.try_connect()
+                flash("Authentication service unavailable. Please try again.", "error")
+            else:
+                flash(f"Auth error: {e.details()}", "error")
         except Exception as e:
-            flash("Auth service down. Try again later.", "error")
+            flash(f"Auth service error: {str(e)[:100]}", "error")
+    
     return render_template('login.html')
 
 @app.route('/verify-otp/<int:user_id>', methods=['GET', 'POST'])
 def verify_otp(user_id):
     if request.method == 'POST':
-        req = auth_pb2.VerifyOTPRequest(user_id=user_id, otp=request.form['otp'])
+        stub = auth_manager.get_stub()
+        if not stub:
+            flash("Auth server not available", "error")
+            return render_template('verify_otp.html', name=f"User {user_id}")
+        
         try:
+            req = auth_pb2.VerifyOTPRequest(
+                user_id=user_id,
+                otp=request.form['otp']
+            )
             resp = stub.VerifyOTP(req, timeout=10)
+            
             if resp.success:
-                user = User.query.get(user_id)
-                login_user(user)
-                flash("Welcome back!", "success")
+                # Create a demo user for Flask-Login
+                demo_user = DemoUser(user_id, f"user{user_id}")
+                login_user(demo_user)
+                flash("Login successful!", "success")
                 return redirect(url_for('dashboard'))
             else:
                 flash(resp.message, "error")
-        except:
-            flash("Verification failed", "error")
-    user = User.query.get(user_id)
-    return render_template('verify_otp.html', name=user.name if user else "User")
+        except grpc.RpcError as e:
+            if e.code() == grpc.StatusCode.UNAVAILABLE:
+                auth_manager.try_connect()
+                flash("Authentication service unavailable. Please try again.", "error")
+            else:
+                flash(f"Verification error: {e.details()}", "error")
+        except Exception as e:
+            flash(f"Verification failed: {str(e)[:100]}", "error")
+    
+    return render_template('verify_otp.html', name=f"User {user_id}")
 
 @app.route('/dashboard')
 @login_required
@@ -115,10 +228,15 @@ def dashboard():
 @login_required
 def logout():
     logout_user()
+    flash("Logged out successfully", "success")
     return redirect(url_for('login'))
 
-# Keep all your /api routes exactly as they are (upload, files, download, delete, stats)
-
 if __name__ == '__main__':
-    print("Car Rental Cloud Storage System - LAUNCHED")
+    print("✅ Car Rental Cloud Storage System - LAUNCHED")
+    print(f"🌐 Web App: http://127.0.0.1:5000")
+    if auth_manager.is_connected():
+        print(f"🔌 Connected to Auth Server on port {auth_manager.port}")
+    else:
+        print("⚠️ Auth Server: NOT CONNECTED")
+    print("=" * 60)
     app.run(debug=True, port=5000)
