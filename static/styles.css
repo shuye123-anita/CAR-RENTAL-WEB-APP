@@ -25,6 +25,7 @@ body {
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 h2 { color: #00d4ff; margin: 30px 0 20px; font-size: 2rem; }
+.input-group { position: relative; margin: 20px 0; }
 .input-group input { 
     width: 100%; padding: 18px 18px 18px 55px; 
     border: 2px solid #333; border-radius: 15px; 
@@ -70,3 +71,8 @@ h2 { color: #00d4ff; margin: 30px 0 20px; font-size: 2rem; }
 .action-btn.delete { background: #e74c3c; color: white; }
 
 footer { text-align: center; padding: 40px; color: #777; font-size: 0.9rem; margin-top: 50px; }
+
+/* Alerts */
+.alert { padding: 15px; border-radius: 10px; margin: 20px 0; text-align: center; }
+.alert-success { background: rgba(46, 204, 113, 0.2); border: 1px solid #2ecc71; color: #2ecc71; }
+.alert-error { background: rgba(231, 76, 60, 0.2); border: 1px solid #e74c3c; color: #e74c3c; }
