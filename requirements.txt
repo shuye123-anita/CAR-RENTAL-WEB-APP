@@ -4,3 +4,4 @@ python-dotenv==1.0.1
 bcrypt==4.2.0
 grpcio==1.76.0
 grpcio-tools==1.76.0
+bcrypt==4.2.0
